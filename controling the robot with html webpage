@@ -1,0 +1,180 @@
+#include <WiFi.h>
+#include <WebServer.h>
+#include <ESP32Servo.h>
+
+// WiFi بيانات الشبكة
+const char* ssid = "WE_5DCAF0";
+const char* password = "32044461";
+
+// السيرفر
+WebServer server(80);
+
+// أرجل الموتور حسب توصيلة L298N
+#define ENA     13
+#define IN1     12
+#define IN2     14
+#define ENB     27
+#define IN3     26
+#define IN4     25
+
+// سيرفو
+#define SERVO_PIN 32
+Servo myServo;
+int servoPos = 90; // البداية في المنتصف
+
+// صفحة HTML
+const char* htmlPage = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Robot Controller</title>
+  <style>
+    body { font-family: Arial; text-align: center; background-color: #f0f0f0; }
+    h1 { color: #333; }
+    button {
+      width: 100px;
+      height: 60px;
+      font-size: 18px;
+      margin: 10px;
+      border-radius: 10px;
+    }
+    input {
+      font-size: 16px;
+      padding: 5px;
+      width: 250px;
+      border-radius: 8px;
+    }
+    .controls, .servo-controls {
+      margin: 20px auto;
+    }
+    iframe, img {
+      margin-top: 20px;
+      width: 320px;
+      height: 240px;
+      border: 2px solid #333;
+      border-radius: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h1>🚗 ESP32 Robot Controller</h1>
+
+  <div class="controls">
+    <button onclick="sendCommand('forward')">↑</button><br>
+    <button onclick="sendCommand('left')">←</button>
+    <button onclick="sendCommand('stop')">⏹</button>
+    <button onclick="sendCommand('right')">→</button><br>
+    <button onclick="sendCommand('backward')">↓</button>
+  </div>
+
+  <div class="servo-controls">
+    <h2>🎯 Servo Control</h2>
+    <button onclick="sendCommand('servo_left')">◀</button>
+    <button onclick="sendCommand('servo_right')">▶</button>
+  </div>
+
+  <h2>📷 Live Camera</h2>
+
+  <div>
+    <input type="text" id="camIp" placeholder="Enter ESP32-CAM IP (e.g., 192.168.1.100)">
+    <button onclick="updateCamStream()">📡 Load Stream</button>
+  </div>
+
+  <img id="camStream" src="" alt="Camera Stream"/>
+
+  <script>
+    function sendCommand(cmd) {
+      fetch("/cmd?move=" + cmd)
+        .then(response => {
+          if (!response.ok) {
+            alert("Error sending command: " + cmd);
+          }
+        });
+    }
+
+    function updateCamStream() {
+      const ip = document.getElementById('camIp').value.trim();
+      if (ip !== "") {
+        const camStream = document.getElementById('camStream');
+        camStream.src = "http://" + ip + ":81/stream";
+      } else {
+        alert("Please enter a valid IP address!");
+      }
+    }
+  </script>
+</body>
+</html>
+)rawliteral";
+
+// ------------------- دالة تنفيذ الأوامر -------------------
+void handleCommand(String cmd) {
+  if (cmd == "forward") {
+    digitalWrite(IN1, HIGH); digitalWrite(IN2, LOW); analogWrite(ENA, 200);
+    digitalWrite(IN3, HIGH); digitalWrite(IN4, LOW); analogWrite(ENB, 200);
+  } else if (cmd == "backward") {
+    digitalWrite(IN1, LOW); digitalWrite(IN2, HIGH); analogWrite(ENA, 200);
+    digitalWrite(IN3, LOW); digitalWrite(IN4, HIGH); analogWrite(ENB, 200);
+  } else if (cmd == "left") {
+    digitalWrite(IN1, LOW); digitalWrite(IN2, HIGH); analogWrite(ENA, 200);
+    digitalWrite(IN3, HIGH); digitalWrite(IN4, LOW); analogWrite(ENB, 200);
+  } else if (cmd == "right") {
+    digitalWrite(IN1, HIGH); digitalWrite(IN2, LOW); analogWrite(ENA, 200);
+    digitalWrite(IN3, LOW); digitalWrite(IN4, HIGH); analogWrite(ENB, 200);
+  } else if (cmd == "stop") {
+    digitalWrite(IN1, LOW); digitalWrite(IN2, LOW); analogWrite(ENA, 0);
+    digitalWrite(IN3, LOW); digitalWrite(IN4, LOW); analogWrite(ENB, 0);
+  } else if (cmd == "servo_left") {
+    servoPos = max(servoPos - 15, 0);
+    myServo.write(servoPos);
+  } else if (cmd == "servo_right") {
+    servoPos = min(servoPos + 15, 180);
+    myServo.write(servoPos);
+  }
+}
+
+// ------------------- الإعداد -------------------
+void setup() {
+  Serial.begin(115200);
+
+  // الموتور
+  pinMode(ENA, OUTPUT);
+  pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+  pinMode(ENB, OUTPUT);
+  pinMode(IN3, OUTPUT);
+  pinMode(IN4, OUTPUT);
+
+  // السيرفو
+  myServo.attach(SERVO_PIN);
+  myServo.write(servoPos); // وضع مبدئي
+
+  // WiFi
+  WiFi.begin(ssid, password);
+  Serial.print("Connecting to WiFi");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500); Serial.print(".");
+  }
+  Serial.println("\nWiFi connected. IP address: ");
+  Serial.println(WiFi.localIP());
+
+  // السيرفر
+  server.on("/", []() {
+    server.send(200, "text/html", htmlPage);
+  });
+
+  server.on("/cmd", []() {
+    if (server.hasArg("move")) {
+      String cmd = server.arg("move");
+      handleCommand(cmd);
+    }
+    server.send(200, "text/plain", "OK");
+  });
+
+  server.begin();
+  Serial.println("HTTP server started");
+}
+
+// ------------------- اللوب -------------------
+void loop() {
+  server.handleClient();
+}
