@@ -40,60 +40,150 @@ WebServer server(80);
 
 int speed = 180;
 
-// ================== HTML مع حركة مستمرة محسنة ==================
+// ================== HTML محسن ==================
 const char* htmlPage = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Robot Control</title>
 <style>
-body{font-family:Arial;text-align:center;background:#222;color:#0f0;margin-top:40px}
-button{width:120px;height:70px;font-size:22px;margin:8px;border-radius:15px;background:#0f0;color:#000}
-.slider{width:80%;height:30px}
+body{font-family:Arial;text-align:center;background:#222;color:#0f0;margin-top:20px;padding:10px}
+button{width:100px;height:60px;font-size:18px;margin:6px;border-radius:10px;background:#0f0;color:#000;border:none;cursor:pointer;user-select:none}
+button:active{background:#0c0}
+.slider{width:90%;height:25px;margin:15px}
+h1{font-size:24px;margin:10px}
+h2{font-size:20px;margin:15px 0 10px}
+h3{font-size:18px;margin:10px}
+.container{max-width:500px;margin:0 auto}
+@media (max-width: 600px) {
+  button{width:80px;height:50px;font-size:16px}
+  h1{font-size:20px}
+}
 </style>
 </head>
 
 <body>
-<h1>Robot BTS7960 + Pan Tilt</h1>
+<div class="container">
+<h1>Robot Control</h1>
 
 <h2>🚗 Movement</h2>
-<button ontouchstart="send('f')" ontouchend="send('s')" onmousedown="send('f')" onmouseup="send('s')">↑</button><br>
-<button ontouchstart="send('l')" ontouchend="send('s')" onmousedown="send('l')" onmouseup="send('s')">←</button>
-<button ontouchstart="send('s')" ontouchend="send('s')" onmousedown="send('s')" onmouseup="send('s')">■</button>
-<button ontouchstart="send('r')" ontouchend="send('s')" onmousedown="send('r')" onmouseup="send('s')">→</button><br>
-<button ontouchstart="send('b')" ontouchend="send('s')" onmousedown="send('b')" onmouseup="send('s')">↓</button>
+<button ontouchstart="sendMove('f')" ontouchend="sendStop()" onmousedown="sendMove('f')" onmouseup="sendStop()">↑</button><br>
+<button ontouchstart="sendMove('l')" ontouchend="sendStop()" onmousedown="sendMove('l')" onmouseup="sendStop()">←</button>
+<button onclick="sendStop()">■</button>
+<button ontouchstart="sendMove('r')" ontouchend="sendStop()" onmousedown="sendMove('r')" onmouseup="sendStop()">→</button><br>
+<button ontouchstart="sendMove('b')" ontouchend="sendStop()" onmousedown="sendMove('b')" onmouseup="sendStop()">↓</button>
 
 <h2>🎥 Pan Tilt</h2>
-<button onmousedown="startMove('pl')" onmouseup="stopMove()" ontouchstart="startMove('pl')" ontouchend="stopMove()">Pan ◀</button>
-<button onmousedown="startMove('pr')" onmouseup="stopMove()" ontouchstart="startMove('pr')" ontouchend="stopMove()">Pan ▶</button><br>
-<button onmousedown="startMove('tu')" onmouseup="stopMove()" ontouchstart="startMove('tu')" ontouchend="stopMove()">Tilt ▲</button>
-<button onmousedown="startMove('td')" onmouseup="stopMove()" ontouchstart="startMove('td')" ontouchend="stopMove()">Tilt ▼</button><br>
-<button onclick="send('pc')">Center</button>
+<button ontouchstart="startServoMove('pl')" ontouchend="stopServoMove()" onmousedown="startServoMove('pl')" onmouseup="stopServoMove()">◀ Pan</button>
+<button ontouchstart="startServoMove('pr')" ontouchend="stopServoMove()" onmousedown="startServoMove('pr')" onmouseup="stopServoMove()">Pan ▶</button><br>
+<button ontouchstart="startServoMove('tu')" ontouchend="stopServoMove()" onmousedown="startServoMove('tu')" onmouseup="stopServoMove()">▲ Tilt</button>
+<button ontouchstart="startServoMove('td')" ontouchend="stopServoMove()" onmousedown="startServoMove('td')" onmouseup="stopServoMove()">Tilt ▼</button><br>
+<button onclick="centerServo()">Center</button>
 
 <br><br>
-<h3>سرعة الموتور</h3>
-<input type="range" min="80" max="255" value="180" class="slider" oninput="send('v'+this.value)">
+<h3>Motor Speed</h3>
+<input type="range" min="80" max="255" value="180" class="slider" oninput="sendSpeed(this.value)">
 
 <script>
-function send(cmd){
-  fetch('/cmd?move='+cmd);
+// متغيرات للتحكم في الحركة
+let isMoving = false;
+let activeMove = '';
+let activeServoMove = '';
+let moveTimeout = null;
+
+// إرسال أمر تحريك الموتور
+function sendMove(direction) {
+  if (isMoving && activeMove === direction) return;
+  
+  // إيقاف أي حركة سابقة
+  sendStop();
+  
+  isMoving = true;
+  activeMove = direction;
+  fetch('/cmd?move=' + direction);
 }
 
-function startMove(dir){
-  window.currentDir = dir;
-  fetch('/cmd?move=start_' + dir);  // أمر بدء الحركة
-  window.moveInterval = setInterval(() => {
-    fetch('/cmd?move='+window.currentDir);
-  }, 100);
+// إيقاف الموتور
+function sendStop() {
+  if (!isMoving) return;
+  
+  isMoving = false;
+  activeMove = '';
+  fetch('/cmd?move=s');
+  
+  // إلغاء أي timeout
+  if (moveTimeout) {
+    clearTimeout(moveTimeout);
+    moveTimeout = null;
+  }
 }
 
-function stopMove(){
-  fetch('/cmd?move=stop');  // أمر إيقاف الحركة
-  clearInterval(window.moveInterval);
+// بدء حركة السيرفو
+function startServoMove(direction) {
+  if (activeServoMove === direction) return;
+  
+  // إيقاف أي حركة سابقة
+  if (activeServoMove) {
+    fetch('/cmd?move=stop_servo');
+  }
+  
+  activeServoMove = direction;
+  fetch('/cmd?move=' + direction);
 }
+
+// إيقاف حركة السيرفو
+function stopServoMove() {
+  if (!activeServoMove) return;
+  
+  fetch('/cmd?move=stop_servo');
+  activeServoMove = '';
+}
+
+// تثبيت السيرفو في المنتصف
+function centerServo() {
+  stopServoMove();
+  fetch('/cmd?move=pc');
+}
+
+// إرسال السرعة
+function sendSpeed(value) {
+  fetch('/cmd?move=v' + value);
+}
+
+// منع السلوك الافتراضي للعناصر
+function preventDefault(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  return false;
+}
+
+// منع التمرير عند لمس الشاشة
+document.addEventListener('touchmove', function(e) {
+  if (e.target.tagName === 'BUTTON') {
+    e.preventDefault();
+  }
+}, { passive: false });
+
+// إيقاف الحركة عند ترك الصفحة
+document.addEventListener('visibilitychange', function() {
+  if (document.hidden) {
+    sendStop();
+    stopServoMove();
+  }
+});
+
+window.addEventListener('blur', function() {
+  sendStop();
+  stopServoMove();
+});
+
+// منع القائمة السياقية
+document.addEventListener('contextmenu', preventDefault);
 </script>
 
+</div>
 </body>
 </html>
 )rawliteral";
@@ -146,6 +236,7 @@ void writeServo(int pin, int angle) {
 // ================== SETUP ==================
 void setup() {
   Serial.begin(115200);
+  Serial.println("Starting Robot Control...");
 
   // MOTOR PINS
   pinMode(R_PWM1, OUTPUT); pinMode(L_PWM1, OUTPUT);
@@ -157,6 +248,7 @@ void setup() {
   digitalWrite(R_EN2, HIGH); digitalWrite(L_EN2, HIGH);
 
   motorStop();
+  Serial.println("Motor pins initialized");
 
   // PAN TILT LEDC
   ledcAttach(PAN_PIN, 50, 16);
@@ -164,79 +256,151 @@ void setup() {
 
   writeServo(PAN_PIN, panAngle);
   writeServo(TILT_PIN, tiltAngle);
+  Serial.println("Servo pins initialized");
 
   // WIFI
   WiFi.config(local_IP, gateway, subnet);
+  Serial.print("Connecting to WiFi ");
   WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) { delay(500); Serial.print("."); }
-  Serial.println("\nWiFi connected. IP: " + WiFi.localIP().toString());
+  
+  int attempts = 0;
+  while (WiFi.status() != WL_CONNECTED && attempts < 30) { 
+    delay(500); 
+    Serial.print(".");
+    attempts++;
+  }
+  
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("\nWiFi connected!");
+    Serial.print("IP Address: ");
+    Serial.println(WiFi.localIP());
+  } else {
+    Serial.println("\nFailed to connect to WiFi!");
+  }
 
-  server.on("/", [](){ server.send(200,"text/html",htmlPage); });
+  server.on("/", [](){ 
+    Serial.println("Serving HTML page");
+    server.send(200, "text/html", htmlPage); 
+  });
 
   server.on("/cmd", [](){
     if(server.hasArg("move")){
       String cmd = server.arg("move");
+      Serial.print("Received command: ");
+      Serial.println(cmd);
 
       // MOTOR COMMANDS
-      if (cmd=="f") motorForward();
-      else if (cmd=="b") motorBackward();
-      else if (cmd=="l") motorLeft();
-      else if (cmd=="r") motorRight();
-      else if (cmd=="s") motorStop();
+      if (cmd == "f") {
+        motorForward();
+        Serial.println("Forward");
+      }
+      else if (cmd == "b") {
+        motorBackward();
+        Serial.println("Backward");
+      }
+      else if (cmd == "l") {
+        motorLeft();
+        Serial.println("Left");
+      }
+      else if (cmd == "r") {
+        motorRight();
+        Serial.println("Right");
+      }
+      else if (cmd == "s") {
+        motorStop();
+        Serial.println("Stop motors");
+      }
       else if (cmd.startsWith("v")){
-        speed = constrain(cmd.substring(1).toInt(),80,255);
+        speed = constrain(cmd.substring(1).toInt(), 80, 255);
+        Serial.print("Speed set to: ");
+        Serial.println(speed);
       }
 
-      // PAN TILT CONTINUOUS - START MOVEMENT
-      else if(cmd=="start_pl") panDirection = -1;
-      else if(cmd=="start_pr") panDirection =  1;
-      else if(cmd=="start_tu") tiltDirection =  1;
-      else if(cmd=="start_td") tiltDirection = -1;
-      
-      // CONTINUE MOVEMENT (للحركة المستمرة)
-      else if(cmd=="pl") panDirection = -1;
-      else if(cmd=="pr") panDirection =  1;
-      else if(cmd=="tu") tiltDirection =  1;
-      else if(cmd=="td") tiltDirection = -1;
-      
-      // STOP COMMAND - إيقاف الحركة
-      else if(cmd=="stop"){
+      // PAN TILT COMMANDS
+      else if(cmd == "pl") {
+        panDirection = -1;
+        tiltDirection = 0;
+        Serial.println("Pan left");
+      }
+      else if(cmd == "pr") {
+        panDirection = 1;
+        tiltDirection = 0;
+        Serial.println("Pan right");
+      }
+      else if(cmd == "tu") {
+        tiltDirection = 1;
+        panDirection = 0;
+        Serial.println("Tilt up");
+      }
+      else if(cmd == "td") {
+        tiltDirection = -1;
+        panDirection = 0;
+        Serial.println("Tilt down");
+      }
+      else if(cmd == "stop_servo") {
         panDirection = 0;
         tiltDirection = 0;
+        Serial.println("Stop servo");
       }
-      
-      else if(cmd=="pc"){ 
-        panAngle = 90; tiltAngle = 90;
-        panDirection = 0; tiltDirection = 0;
+      else if(cmd == "pc") { 
+        panAngle = 90; 
+        tiltAngle = 90;
+        panDirection = 0; 
+        tiltDirection = 0;
         writeServo(PAN_PIN, panAngle);
         writeServo(TILT_PIN, tiltAngle);
+        Serial.println("Center servos");
+      }
+      else {
+        Serial.print("Unknown command: ");
+        Serial.println(cmd);
       }
     }
 
-    server.send(200,"text/plain","OK");
+    server.send(200, "text/plain", "OK");
+  });
+
+  // Handle 404 errors
+  server.onNotFound([](){
+    Serial.println("404 - Page not found");
+    server.send(404, "text/plain", "Page not found");
   });
 
   server.begin();
-  Serial.println("Server started");
+  Serial.println("HTTP server started");
 }
 
 void loop() {
   server.handleClient();
 
   // ===== CONTINUOUS SERVO MOVEMENT =====
-  if(millis() - lastServoUpdate >= continuousDelay){
-    lastServoUpdate = millis();
+  unsigned long currentMillis = millis();
+  
+  if(currentMillis - lastServoUpdate >= continuousDelay){
+    lastServoUpdate = currentMillis;
 
+    // تحديث حركة Pan
     if(panDirection != 0){
-      panAngle += panDirection;
-      panAngle = constrain(panAngle, 0, 180);
-      writeServo(PAN_PIN, panAngle);
+      int newPanAngle = panAngle + panDirection;
+      if(newPanAngle >= 0 && newPanAngle <= 180){
+        panAngle = newPanAngle;
+        writeServo(PAN_PIN, panAngle);
+      } else {
+        // إذا وصل إلى الحد الأقصى، توقف تلقائياً
+        panDirection = 0;
+      }
     }
 
+    // تحديث حركة Tilt
     if(tiltDirection != 0){
-      tiltAngle += tiltDirection;
-      tiltAngle = constrain(tiltAngle, 0, 180);
-      writeServo(TILT_PIN, tiltAngle);
+      int newTiltAngle = tiltAngle + tiltDirection;
+      if(newTiltAngle >= 0 && newTiltAngle <= 180){
+        tiltAngle = newTiltAngle;
+        writeServo(TILT_PIN, tiltAngle);
+      } else {
+        // إذا وصل إلى الحد الأقصى، توقف تلقائياً
+        tiltDirection = 0;
+      }
     }
   }
 }
